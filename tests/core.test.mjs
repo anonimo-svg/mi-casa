@@ -1,0 +1,27 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {toCents,fmt} from '../src/lib/money.js';
+import {summarize,byCategory} from '../src/lib/finance.js';
+import {shiftMonth,daysBetween,fmtDate} from '../src/lib/dates.js';
+import {icsFor,gcalLink} from '../src/lib/calendar.js';
+import {makeBackup,validateBackup} from '../src/lib/backup.js';
+const m=(type,cents,date,status='paid',category='Otros')=>({id:Math.random()+'',type,cents,date,status,category});
+test('importes',()=>{assert.equal(toCents('1.500,50'),150050);assert.equal(toCents('0,10'),10);assert.equal(toCents('19,99'),1999);
+  for(const x of['','abc','-5','1,234','1,5,5'])assert.equal(toCents(x),null);assert.match(fmt(150050),/1\.500,50/)});
+test('saldo no descuenta pendientes ni duplica',()=>{
+  const d=[m('income',100000,'2026-10-01'),m('expense',30000,'2026-10-05'),m('expense',20000,'2026-10-20','pending'),m('expense',5000,'2026-09-10','pending')];
+  const s=summarize(d,'2026-10','2026-10-28');
+  assert.equal(s.balance,70000);assert.equal(s.paid,30000);assert.equal(s.pending,20000);assert.equal(s.overdue,25000);assert.equal(s.monthBalance,70000);
+  d[2].status='paid';assert.equal(summarize(d,'2026-10','2026-10-28').balance,50000)});
+test('saldo acumulado entre meses',()=>{const d=[m('income',50000,'2026-09-01'),m('expense',10000,'2026-09-02'),m('income',20000,'2026-10-01')];
+  assert.equal(summarize(d,'2026-09','2026-10-28').balance,40000);assert.equal(summarize(d,'2026-10','2026-10-28').balance,60000)});
+test('categorías',()=>assert.deepEqual(byCategory([m('expense',100,'2026-10-01','paid','A'),m('expense',300,'2026-10-02','paid','B'),m('expense',900,'2026-10-02','pending','C')],'2026-10'),[['B',300],['A',100]]));
+test('fechas',()=>{assert.equal(shiftMonth('2026-12',1),'2027-01');assert.equal(shiftMonth('2026-01',-1),'2025-12');
+  assert.equal(daysBetween('2026-10-28','2026-11-01'),4);assert.equal(daysBetween('2026-03-01','2026-02-28'),-1);assert.equal(fmtDate('2026-10-28'),'28/10/2026')});
+test('ics y google calendar',()=>{const r={id:'x',title:'Turno, médico',date:'2026-10-30',time:'09:30',place:'Clínica'};
+  assert.match(icsFor(r),/DTSTART:20261030T093000/);assert.match(icsFor(r),/SUMMARY:Turno\\, médico/);
+  assert.match(icsFor({...r,time:''}),/DTSTART;VALUE=DATE:20261030/);assert.match(gcalLink(r),/dates=20261030T093000%2F20261030T103000/);
+  assert.match(gcalLink({...r,time:''}),/dates=20261030%2F20261031/)});
+test('backup ida y vuelta y validación',()=>{const d={movements:[m('income',100,'2026-10-01')],lists:[{id:'l',name:'x',items:[]}],reminders:[]};
+  assert.deepEqual(validateBackup(JSON.parse(JSON.stringify(makeBackup(d)))),d);
+  assert.throws(()=>validateBackup({}));assert.throws(()=>validateBackup({app:'mi-casa',version:1,data:{movements:[{id:'a',type:'income',cents:1.5,date:'2026-10-01'}],lists:[],reminders:[]}}));
+  assert.throws(()=>validateBackup({app:'mi-casa',version:1,data:{movements:[],lists:[]}}))});
